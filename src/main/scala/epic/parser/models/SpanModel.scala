@@ -323,7 +323,9 @@ object IndexedSpanFeaturizer {
 case class ExtraParams(useHackyLexicalFeatures:Boolean = false,
                       hackyLexicalFeatureDesc:String = "",
                       useMorph:Boolean = false,
-                      pathsToMorph:String = "")
+                      pathsToMorph:String = "",
+                      useCluster:Boolean = false,
+                      pathsToCluster: String = "")
   
 case class SpanModelFactory(@Help(text=
                               """The kind of annotation to do on the refined grammar. Default uses just parent annotation.
@@ -375,7 +377,8 @@ You can also epic.trees.annotations.KMAnnotator to get more or less Klein and Ma
     lazy val spanShapeBetter = new SpanShapeFeaturizerBetter(numSpanContextWords, useRichSpanContext)
     lazy val tagSpanShape = new TagSpanShapeFeaturizer(TagSpanShapeGenerator.makeBaseLexicon(trainTrees))
     lazy val fullShape = new FullWordSpanShapeFeaturizer(summedWordCounts.iterator.filter(_._2 > commonWordThreshold * 10).map(_._1).toSet, numSpanContextWords, useRichSpanContext)
-
+    lazy val clusterSpan: ClusterSpanFeaturizer = ClusterSpanFeaturizer(pathsToCluster.split(","))
+    
     var wf = posFeaturizer.getOrElse( SpanModelFactory.defaultPOSFeaturizer(annWords))
 
     if(useMorph)
@@ -384,7 +387,7 @@ You can also epic.trees.annotations.KMAnnotator to get more or less Klein and Ma
 
 
 
-    var span: SplitSpanFeaturizer[String] = spanFeaturizer.getOrElse(SpanModelFactory.goodFeaturizer(annWords, commonWordThreshold, useShape = useShape))
+    var span: SplitSpanFeaturizer[String] = spanFeaturizer.getOrElse(SpanModelFactory.goodFeaturizer(annWords, commonWordThreshold, useShape = useShape, mf))
 
     if(useRichSpanContext)
       span += spanShapeBetter
@@ -397,8 +400,10 @@ You can also epic.trees.annotations.KMAnnotator to get more or less Klein and Ma
 
     if(useFullShape)
       span += fullShape
-
-
+      
+    if(useCluster)
+      span += clusterSpan
+      
     val indexedWord = IndexedWordFeaturizer.fromData(wf, annTrees.map{_.words})
     val surface = IndexedSplitSpanFeaturizer.fromData(span, annTrees, bloomFilter = false)
     
@@ -519,7 +524,7 @@ case class LatentSpanModelFactory(inner: SpanModelFactory,
       }
     }
 
-    var span: SplitSpanFeaturizer[String] = SpanModelFactory.goodFeaturizer(annWords, commonWordThreshold)
+    var span: SplitSpanFeaturizer[String] = SpanModelFactory.goodFeaturizer(annWords, commonWordThreshold, mf=mf)
 
     if(useRichSpanContext)
       span += spanShapeBetter
@@ -584,12 +589,12 @@ case class LatentSpanModelFactory(inner: SpanModelFactory,
 object SpanModelFactory {
   def goodFeaturizer[L](wordCounts: Counter2[AnnotatedLabel, String, Double],
                         commonWordThreshold: Int = 100,
-                        useShape: Boolean = true) = {
+                        useShape: Boolean = true, mf: MorphFeaturizer) = {
     val dsl = new WordFeaturizer.DSL(wordCounts, commonWordThreshold) with SurfaceFeaturizer.DSL with SplitSpanFeaturizer.DSL
     import dsl._
 
     // class(split + 1)
-    val baseCat = lfsuf
+    val baseCat = lfsuf + mf
 
     val leftOfSplit: SplitSpanFeaturizer[String] =  ((baseCat)(-1)apply (split))
 
